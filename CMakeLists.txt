@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 2.6 FATAL_ERROR)
 project(defconbots22)
 find_package(PCL 1.7 REQUIRED COMPONENTS common io filters segmentation visualization)
+find_package(OpenCV REQUIRED)
 include_directories(${PCL_INCLUDE_DIRS} "/usr/include/ni" include)
 # /usr/include/ni is hack because package wasn't detected
 link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
-add_executable(defconbots22 src/defconbots22.cpp include/defconbots22.h)
-target_link_libraries(defconbots22 ${PCL_LIBRARIES} )
+add_executable(defconbots22 src/defconbots22.cpp include/defconbots22.h )
+target_link_libraries(defconbots22 ${PCL_LIBRARIES} ${OpenCV_LIBS} )

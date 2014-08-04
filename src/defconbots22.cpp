@@ -23,6 +23,12 @@
 #include <pcl/common/impl/angles.hpp>
 #include <pcl/conversions.h>
 
+#define IMAGEVIEWER
+#ifdef IMAGEVIEWER
+#include <pcl/visualization/image_viewer.h>
+#include <opencv2/core/core.hpp>
+#endif
+
 
 #ifndef NOVIEWER
 void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
@@ -69,6 +75,9 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
 	viewer.addLine(boundingbox[1],boundingbox[5], "10", 0);
 	viewer.addLine(boundingbox[2],boundingbox[6], "11", 0);
 	viewer.addLine(boundingbox[3],boundingbox[7], "12", 0);
+
+	viewer.initCameraParameters();
+	viewer.resetCameraViewpoint();
 }
 
 void viewerContinuous(pcl::visualization::PCLVisualizer& viewer)
@@ -114,6 +123,8 @@ class DefconBots22
         saveCloud = false;
         toggleView = 0;
         filesSaved = 0;
+	height = 0;
+	width = 0;
       }
 
   ~DefconBots22()
@@ -138,6 +149,37 @@ class DefconBots22
           }
         }	
       }
+
+#ifdef IMAGEVIEWER
+       void image_cb_ (const boost::shared_ptr<openni_wrapper::Image> &image) 
+        { 
+        	boost::mutex::scoped_lock lock (mtx2_);
+                height = image->getHeight(); 
+                width = image->getWidth(); 
+                cv::Mat frameBGR=cv::Mat(image->getHeight(),image->getWidth(),CV_8UC3); 
+
+                image->fillRGB(frameBGR.cols,frameBGR.rows,frameBGR.data,frameBGR.step); 
+
+                //-- 3. Apply the classifier to the frame 
+                if( !frameBGR.empty() ) 
+                { 
+                        for(int j=0; j<height; j++) 
+                        { 
+                                for(int i=0; i<width; i++) 
+                                { 
+                                        rgb_buffer[(j*width + i)*3+0] = frameBGR.at<cv::Vec3b>(j,i)[0];  // B 
+                                        rgb_buffer[(j*width + i)*3+1] = frameBGR.at<cv::Vec3b>(j,i)[1];  // G 
+                                        rgb_buffer[(j*width + i)*3+2] = frameBGR.at<cv::Vec3b>(j,i)[2];  // R 
+                                        //std::cout << (j*width + i)*3+0 << "," << (j*width + i)*3+1 << "," << (j*width + i)*3+2 << "," << std::endl; 
+                                } 
+                        }	
+                        
+
+                } 
+                else 
+                { cout << " --(!) No captured frame -- Break!" << endl; } 
+        } 
+#endif
 
 
   void 
@@ -171,11 +213,14 @@ class DefconBots22
         CloudPtr temp_cloud5 (new Cloud);
         CloudConstPtr empty_cloud;
 
+	Eigen::Vector3f pointercenter (0.0f,0.0f,0.0f);
+	Eigen::Vector3f pointervector (0.0f,0.0f,0.0f);
 
-        cout << "===============================\n"
-                "======Start of frame===========\n"
-                "===============================\n";
-        cerr << "cloud size orig: " << cloud_->size() << endl;
+
+//        cout << "===============================\n"
+//                "======Start of frame===========\n"
+//                "===============================\n";
+//        cout << "cloud size orig: " << cloud_->size() << endl;
 
 	passx.setInputCloud (cloud_);
 	passx.filter (*temp_cloud);
@@ -186,7 +231,7 @@ class DefconBots22
 	passz.setInputCloud (temp_cloud2);
 	passz.filter (*temp_cloud3);
 
-        cerr << "cloud size post filter: " << temp_cloud3->size() << endl;
+//        cout << "cloud size post filter: " << temp_cloud3->size() << endl;
 
 
 	if(temp_cloud3->size() > 0)
@@ -197,7 +242,7 @@ class DefconBots22
 		ec.setSearchMethod (tree);
 		ec.setInputCloud (temp_cloud3);
 		ec.extract (cluster_indices);
-		cerr << "number of clusters " << cluster_indices.size() << endl;
+//		cout << "number of clusters " << cluster_indices.size() << endl;
 
 		for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
 		{
@@ -226,8 +271,23 @@ class DefconBots22
 			centroidp.g = centroid[4];
 			centroidp.b = centroid[5];
 
-			cerr << "centroid " << centroid << endl;
-			cerr << "centroid " << centroidp << endl;
+			cout << "centroidp " << centroidp << endl;
+			cout << "centroid " << centroid << endl;
+
+			Eigen::Vector3f centroid3f;
+			centroid3f[0] = centroid[0];
+			centroid3f[1] = centroid[1];
+			centroid3f[2] = centroid[2];
+
+			cout << "centroid3f " << centroid3f << endl;
+
+			pointervector = pointercenter - centroid3f;
+			cout << "distance from laser to centroid " << pointervector.norm() << endl;
+			cout << "angle to unitZ " << pcl::rad2deg(acos(((pointercenter - centroid3f).normalized()).dot(Eigen::Vector3f::UnitZ()))) << endl;
+			cout << "angle to unitX " << pcl::rad2deg(acos(((pointercenter - centroid3f).normalized()).dot(Eigen::Vector3f::UnitX()))) << endl;
+
+			cout << "theta " << pcl::rad2deg(acos(pointervector[2]/pointervector.norm())) << endl;
+			cout << "phi " << pcl::rad2deg(atan(pointervector[1]/pointervector[0])) << endl;
 		}
 	}
 
@@ -278,6 +338,13 @@ class DefconBots22
           boost::function<void (const CloudConstPtr&)> f = boost::bind (&DefconBots22::cloud_cb_, this, _1);
           boost::signals2::connection c = interface->registerCallback (f);
 
+#ifdef IMAGEVIEWER
+          boost::function<void (const boost::shared_ptr<openni_wrapper::Image>&)> g = 
+             boost::bind (&DefconBots22::image_cb_, this, _1); 
+
+          boost::signals2::connection d = interface->registerCallback (g);
+#endif
+
           interface->start ();
         }
         else 
@@ -299,7 +366,8 @@ class DefconBots22
           {
             if (cloud_)
               get();
-            boost::this_thread::sleep (boost::posix_time::microseconds (50000));
+            //boost::this_thread::sleep (boost::posix_time::microseconds (50000));
+	    boost::this_thread::yield ();
           }
 #else
 
@@ -310,7 +378,17 @@ class DefconBots22
             //the call to get() sets the cloud_ to null;
             viewer.showCloud (get ());
           }
-          boost::this_thread::sleep (boost::posix_time::microseconds (50000));
+          //boost::this_thread::sleep (boost::posix_time::microseconds (50000));
+	  boost::this_thread::yield ();
+          if(!imageviewer.wasStopped()) 
+	  {
+		 if(width) {
+        	  boost::mutex::scoped_lock lock (mtx2_);
+                  imageviewer.showRGBImage(rgb_buffer,width,height); 
+	  	  imageviewer.spinOnce();
+		}
+	  }
+	  boost::this_thread::yield ();
         }
 #endif
 
@@ -322,6 +400,12 @@ class DefconBots22
 
 #ifndef NOVIEWER
   pcl::visualization::CloudViewer viewer;
+#endif
+#ifdef IMAGEVIEWER
+  pcl::visualization::ImageViewer imageviewer;
+  unsigned char rgb_buffer[sizeof (char) * 640*480*3]; 
+  unsigned int height; 
+  unsigned int width; 
 #endif
   pcl::PassThrough<pcl::PointXYZRGBA> passx;
   pcl::PassThrough<pcl::PointXYZRGBA> passy;
@@ -338,6 +422,7 @@ class DefconBots22
   std::string device_id_;
   std::string filename_;
   boost::mutex mtx_;
+  boost::mutex mtx2_;
   CloudConstPtr cloud_;
   bool saveCloud; 
   unsigned int toggleView;
