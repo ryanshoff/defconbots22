@@ -4,7 +4,7 @@
 #include <pcl/io/openni_grabber.h>
 
 #ifndef NOVIEWER
-#include <pcl/visualization/cloud_viewer.h>
+#include <pcl/visualization/pcl_visualizer.h>
 #endif
 
 #include <pcl/io/openni_camera/openni_driver.h>
@@ -80,11 +80,6 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
 	viewer.resetCameraViewpoint();
 }
 
-void viewerContinuous(pcl::visualization::PCLVisualizer& viewer)
-{
-	viewer.removeShape("text", 0);
-	viewer.addText("defcon22", 200, 200, "text", 0);
-}
 #endif
 
 
@@ -117,8 +112,6 @@ class DefconBots22
 
 #ifndef NOVIEWER
         viewer.registerKeyboardCallback(&DefconBots22::keyboard_callback, *this , 0);
-	//viewer.runOnVisualizationThread(viewerContinuous);
-	viewer.runOnVisualizationThreadOnce(viewerOneOff);
 #endif
         saveCloud = false;
         toggleView = 0;
@@ -366,19 +359,23 @@ class DefconBots22
           {
             if (cloud_)
               get();
-            //boost::this_thread::sleep (boost::posix_time::microseconds (50000));
 	    boost::this_thread::yield ();
           }
 #else
+
+	viewerOneOff(viewer);
+        pcl::PointCloud<pcl::PointXYZRGBA>::Ptr emptycloud (new pcl::PointCloud<pcl::PointXYZRGBA>);
+        pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBA> rgb(emptycloud);
+        viewer.addPointCloud<pcl::PointXYZRGBA>(emptycloud, rgb, "kinect cloud");
 
 	while ( !viewer.wasStopped () )
         {
           if (cloud_)
           {
             //the call to get() sets the cloud_ to null;
-            viewer.showCloud (get ());
+            viewer.updatePointCloud(get (), "kinect cloud");
+	    viewer.spinOnce();
           }
-          //boost::this_thread::sleep (boost::posix_time::microseconds (50000));
 	  boost::this_thread::yield ();
           if(!imageviewer.wasStopped()) 
 	  {
@@ -399,7 +396,7 @@ class DefconBots22
 
 
 #ifndef NOVIEWER
-  pcl::visualization::CloudViewer viewer;
+  pcl::visualization::PCLVisualizer viewer;
 #endif
 #ifdef IMAGEVIEWER
   pcl::visualization::ImageViewer imageviewer;
