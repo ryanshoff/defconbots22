@@ -9,6 +9,10 @@
 #define MAX_X_DEPTH 0.7f
 #define MAX_Y_DEPTH 0.4f
 #define MAX_Z_DEPTH 3.5f
-#define FRAMES_PER_SEC 30 
+#define FRAMES_PER_SEC 5 
+
+#define TRACKSIZE 640
+
+#define SERIAL_PORT_DEVICE "/dev/ttyUSB0"
 
 #endif

@@ -2,6 +2,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/io/openni_grabber.h>
+#include <SerialStream.h>
 
 #ifndef NOVIEWER
 #include <pcl/visualization/pcl_visualizer.h>
@@ -28,6 +29,13 @@
 #include <pcl/visualization/image_viewer.h>
 #include <opencv2/core/core.hpp>
 #endif
+
+class DefconBots22
+{
+ public:
+  typedef pcl::PointCloud<pcl::PointXYZRGBA> Cloud;
+  typedef typename Cloud::Ptr CloudPtr;
+  typedef typename Cloud::ConstPtr CloudConstPtr;
 
 
 #ifndef NOVIEWER
@@ -83,13 +91,6 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
 #endif
 
 
-class DefconBots22
-{
- public:
-  typedef pcl::PointCloud<pcl::PointXYZRGBA> Cloud;
-  typedef typename Cloud::Ptr CloudPtr;
-  typedef typename Cloud::ConstPtr CloudConstPtr;
-
   DefconBots22 (const std::string& device_id = "", const std::string& filename = "" ) :
 #ifndef NOVIEWER
       viewer ("defconbots22"),
@@ -116,13 +117,88 @@ class DefconBots22
         saveCloud = false;
         toggleView = 0;
         filesSaved = 0;
+#ifdef IMAGEVIEWER
 	height = 0;
 	width = 0;
+#endif
+
+    openserial();
+    bzero(rgb_track,sizeof (char) * TRACKSIZE*TRACKSIZE*3); 
       }
 
   ~DefconBots22()
   {
   };
+
+
+  void
+	openserial()
+	{
+
+
+    using namespace LibSerial ;
+    serial_port.Open( SERIAL_PORT_DEVICE ) ;
+    if ( ! serial_port.good() )
+    {
+        std::cerr << "Error: Could not open serial port "
+                  << SERIAL_PORT_DEVICE
+                  << std::endl ;
+        exit(1) ;
+    }
+    //
+    // Set the baud rate of the serial port.
+    //
+    serial_port.SetBaudRate( SerialStreamBuf::BAUD_57600 ) ;
+    if ( ! serial_port.good() )
+    {
+        std::cerr << "Error: Could not set the baud rate." << std::endl ;
+        exit(1) ;
+    }
+    //
+    // Set the number of data bits.
+    //
+    serial_port.SetCharSize( SerialStreamBuf::CHAR_SIZE_8 ) ;
+    if ( ! serial_port.good() )
+    {
+        std::cerr << "Error: Could not set the character size." << std::endl ;
+        exit(1) ;
+    }
+    //
+    // Disable parity.
+    //
+    serial_port.SetParity( SerialStreamBuf::PARITY_NONE ) ;
+    if ( ! serial_port.good() )
+    {
+        std::cerr << "Error: Could not disable the parity." << std::endl ;
+        exit(1) ;
+    }
+    //
+    // Set the number of stop bits.
+    //
+    serial_port.SetNumOfStopBits( 1 ) ;
+    if ( ! serial_port.good() )
+    {
+        std::cerr << "Error: Could not set the number of stop bits."
+                  << std::endl ;
+        exit(1) ;
+    }
+    //
+    // Turn on hardware flow control.
+    //
+    serial_port.SetFlowControl( SerialStreamBuf::FLOW_CONTROL_NONE ) ;
+    if ( ! serial_port.good() )
+    {
+        std::cerr << "Error: Could not use hardware flow control."
+                  << std::endl ;
+        exit(1) ;
+    }
+    //
+    // Do not skip whitespace characters while reading from the
+    // serial port.
+    //
+    // serial_port.unsetf( std::ios_base::skipws ) ;
+  }
+
 
   void
       keyboard_callback (const pcl::visualization::KeyboardEvent& event, void *)
@@ -163,14 +239,16 @@ class DefconBots22
                                         rgb_buffer[(j*width + i)*3+0] = frameBGR.at<cv::Vec3b>(j,i)[0];  // B 
                                         rgb_buffer[(j*width + i)*3+1] = frameBGR.at<cv::Vec3b>(j,i)[1];  // G 
                                         rgb_buffer[(j*width + i)*3+2] = frameBGR.at<cv::Vec3b>(j,i)[2];  // R 
-                                        //std::cout << (j*width + i)*3+0 << "," << (j*width + i)*3+1 << "," << (j*width + i)*3+2 << "," << std::endl; 
+                                        //cout << (j*width + i)*3+0 << "," << (j*width + i)*3+1 << "," << (j*width + i)*3+2 << "," << std::endl; 
                                 } 
                         }	
                         
 
                 } 
                 else 
-                { cout << " --(!) No captured frame -- Break!" << endl; } 
+                { 
+			//cout << " --(!) No captured frame -- Break!" << endl; 
+		} 
         } 
 #endif
 
@@ -178,11 +256,13 @@ class DefconBots22
   void 
       cloud_cb_ (const CloudConstPtr& cloud)
       {
+        static unsigned count = 0;
         static double last = pcl::getTime();
         double now = pcl::getTime();
-        if(now >= last + (1/FRAMES_PER_SEC)) {
+        if(++count == FRAMES_PER_SEC) {
           set (cloud);
           last = now;
+	      count = 0;
         }
       }
 
@@ -206,14 +286,14 @@ class DefconBots22
         CloudPtr temp_cloud5 (new Cloud);
         CloudConstPtr empty_cloud;
 
-	Eigen::Vector3f pointercenter (0.0f,0.0f,0.0f);
+	Eigen::Vector3f pointercenter (0.0f,0.1f,0.0f);
 	Eigen::Vector3f pointervector (0.0f,0.0f,0.0f);
 
 
-//        cout << "===============================\n"
-//                "======Start of frame===========\n"
-//                "===============================\n";
-//        cout << "cloud size orig: " << cloud_->size() << endl;
+        cout << "===============================\n"
+                "======Start of frame===========\n"
+                "===============================\n";
+        cout << "cloud size orig: " << cloud_->size() << endl;
 
 	passx.setInputCloud (cloud_);
 	passx.filter (*temp_cloud);
@@ -224,7 +304,8 @@ class DefconBots22
 	passz.setInputCloud (temp_cloud2);
 	passz.filter (*temp_cloud3);
 
-//        cout << "cloud size post filter: " << temp_cloud3->size() << endl;
+        cout << "cloud size post filter: " << temp_cloud3->size() << endl;
+
 
 
 	if(temp_cloud3->size() > 0)
@@ -235,14 +316,18 @@ class DefconBots22
 		ec.setSearchMethod (tree);
 		ec.setInputCloud (temp_cloud3);
 		ec.extract (cluster_indices);
-//		cout << "number of clusters " << cluster_indices.size() << endl;
+		cout << "number of clusters " << cluster_indices.size() << endl;
 
+        std::vector<Eigen::VectorXf> centroid_vector;
+        centroid_vector.clear();
+
+        unsigned int count = 0;
 		for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
 		{
-			//Eigen::Vector4f centroid;
-			//pcl::compute3DCentroid(*temp_cloud3, *it, centroid);
+            count++;
+  			Eigen::VectorXf centroid(6);
+  			pcl::PointXYZRGBA centroidp;
 
-			Eigen::VectorXf centroid(6);
 			centroid.setZero();
 			const std::vector<int> indices = (*it).indices;
 			for(size_t i = 0; i < indices.size(); i++)
@@ -256,7 +341,6 @@ class DefconBots22
 			}
 			centroid /= indices.size();
 
-			pcl::PointXYZRGBA centroidp;
 			centroidp.x = centroid[0];
 			centroidp.y = centroid[1];
 			centroidp.z = centroid[2];
@@ -264,24 +348,51 @@ class DefconBots22
 			centroidp.g = centroid[4];
 			centroidp.b = centroid[5];
 
-			cout << "centroidp " << centroidp << endl;
-			cout << "centroid " << centroid << endl;
+
+            centroid_vector.push_back(centroid);
+
+			cout << "centroid " << count << " " << centroid << endl;
+
+			//cout << "centroidp " << centroidp << endl;
 
 			Eigen::Vector3f centroid3f;
 			centroid3f[0] = centroid[0];
 			centroid3f[1] = centroid[1];
 			centroid3f[2] = centroid[2];
 
-			cout << "centroid3f " << centroid3f << endl;
-
 			pointervector = pointercenter - centroid3f;
-			cout << "distance from laser to centroid " << pointervector.norm() << endl;
-			cout << "angle to unitZ " << pcl::rad2deg(acos(((pointercenter - centroid3f).normalized()).dot(Eigen::Vector3f::UnitZ()))) << endl;
-			cout << "angle to unitX " << pcl::rad2deg(acos(((pointercenter - centroid3f).normalized()).dot(Eigen::Vector3f::UnitX()))) << endl;
 
-			cout << "theta " << pcl::rad2deg(acos(pointervector[2]/pointervector.norm())) << endl;
-			cout << "phi " << pcl::rad2deg(atan(pointervector[1]/pointervector[0])) << endl;
+			cout << "distance from laser to centroid " << pointervector.norm() << " meters." << endl;
+			//cout << "angle to unitZ " << pcl::rad2deg(acos((pointervector.normalized()).dot(Eigen::Vector3f::UnitZ()))) << endl;
+			//cout << "angle to unitX " << pcl::rad2deg(acos((pointervector.normalized()).dot(Eigen::Vector3f::UnitX()))) << endl;
+
+			//cout << "theta " << pcl::rad2deg(acos(pointervector[2]/pointervector.norm())) << endl;
+			//cout << "phi " << pcl::rad2deg(atan(pointervector[1]/pointervector[0])) << endl;
+
+            float theta = pcl::rad2deg(atan(-centroid[0]/centroid[2]));
+            unsigned int thetapwm = theta * 10 + 1200;
+
+            float phi = pcl::rad2deg(atan(-centroid[1]/centroid[2]));
+            unsigned int phipwm = phi * 10 + 1340;
+
+            float thetapointer = pcl::rad2deg(atan(-pointervector[0]/pointervector[2]));
+            float phipointer = pcl::rad2deg(atan(-pointervector[1]/pointervector[2]));
+
+			cout << "theta angle " << theta << " degrees.  phi angle " << phi << " degrees." << endl;
+			cout << "theta pointer angle " << thetapointer << " degrees.  phi angle " << phipointer << " degrees." << endl;
+			cout << thetapwm << "," << phipwm << ",10" << endl;
+			serial_port << thetapwm << "," << phipwm << ",10" << endl;
+
+            unsigned int x = centroid[0]*100 + TRACKSIZE/2;
+            unsigned int z = TRACKSIZE - centroid[2]*100;
+            rgb_track[(z*TRACKSIZE + x)*3+0] = 255;  // R 
+            rgb_track[(z*TRACKSIZE + x+1)*3+0] = 255;  // R 
+            rgb_track[((z+1)*TRACKSIZE + x)*3+0] = 255;  // R 
+            rgb_track[((z+1)*TRACKSIZE + x+1)*3+0] = 255;  // R 
+
 		}
+        // need mutex here
+        centroid_vector_.swap(centroid_vector);
 	}
 
 
@@ -325,7 +436,8 @@ class DefconBots22
       {
         CloudPtr filecloud;
         pcl::Grabber* interface;
-        if(filename_.empty()) {
+        if(filename_.empty())   
+        {
           interface = new pcl::OpenNIGrabber (device_id_);
 
           boost::function<void (const CloudConstPtr&)> f = boost::bind (&DefconBots22::cloud_cb_, this, _1);
@@ -364,28 +476,45 @@ class DefconBots22
 #else
 
 	viewerOneOff(viewer);
-        pcl::PointCloud<pcl::PointXYZRGBA>::Ptr emptycloud (new pcl::PointCloud<pcl::PointXYZRGBA>);
-        pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBA> rgb(emptycloud);
-        viewer.addPointCloud<pcl::PointXYZRGBA>(emptycloud, rgb, "kinect cloud");
+    pcl::PointCloud<pcl::PointXYZRGBA>::Ptr emptycloud (new pcl::PointCloud<pcl::PointXYZRGBA>);
+    pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBA> rgb(emptycloud);
+    viewer.addPointCloud<pcl::PointXYZRGBA>(emptycloud, rgb, "kinect cloud");
 
+	unsigned int count = 0;
 	while ( !viewer.wasStopped () )
         {
           if (cloud_)
           {
             //the call to get() sets the cloud_ to null;
             viewer.updatePointCloud(get (), "kinect cloud");
-	    viewer.spinOnce();
+	        viewer.spinOnce();
+            count++;
+    	    if(count%2)
+    		{
+    		    cout << "1000,1000,10" << endl;
+    		    serial_port << "1000,1000,10" << endl;
+    		}
           }
-	  boost::this_thread::yield ();
+	  
+#ifdef IMAGEVIEWER
           if(!imageviewer.wasStopped()) 
-	  {
-		 if(width) {
-        	  boost::mutex::scoped_lock lock (mtx2_);
-                  imageviewer.showRGBImage(rgb_buffer,width,height); 
-	  	  imageviewer.spinOnce();
-		}
-	  }
-	  boost::this_thread::yield ();
+    	  {
+    		 if(width) {
+        	        boost::mutex::scoped_lock lock (mtx2_);
+                    imageviewer.showRGBImage(rgb_buffer,width,height); 
+    	  	        imageviewer.spinOnce();
+        		}
+    	  }
+          if(!imageviewertrack.wasStopped()) 
+    	  {
+                imageviewertrack.showRGBImage(rgb_track,TRACKSIZE,TRACKSIZE); 
+    	  	    imageviewertrack.spinOnce();
+    	  }
+    	  boost::this_thread::yield ();
+
+#endif
+         if(!filename_.empty())
+            viewer.spinOnce();
         }
 #endif
 
@@ -400,21 +529,25 @@ class DefconBots22
 #endif
 #ifdef IMAGEVIEWER
   pcl::visualization::ImageViewer imageviewer;
+  pcl::visualization::ImageViewer imageviewertrack;
   unsigned char rgb_buffer[sizeof (char) * 640*480*3]; 
   unsigned int height; 
   unsigned int width; 
 #endif
+  unsigned char rgb_track[sizeof (char) * TRACKSIZE*TRACKSIZE*3]; 
   pcl::PassThrough<pcl::PointXYZRGBA> passx;
   pcl::PassThrough<pcl::PointXYZRGBA> passy;
   pcl::PassThrough<pcl::PointXYZRGBA> passz;
   pcl::EuclideanClusterExtraction<pcl::PointXYZRGBA> ec;
 
+  LibSerial::SerialStream serial_port;
 
   pcl::PCDReader pcd;
   Eigen::Vector4f origin;
   Eigen::Quaternionf orientation;
   int version; 
   pcl::PCLPointCloud2::Ptr pcd_cloud;
+  std::vector<Eigen::VectorXf> centroid_vector_;
 
   std::string device_id_;
   std::string filename_;
