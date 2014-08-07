@@ -1,3 +1,9 @@
+#define IMAGEVIEWER
+#define TRACKVIEWER
+#undef SERIAL
+#undef NOVIEWER
+
+
 #include <iostream>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -24,11 +30,8 @@
 #include <pcl/common/impl/angles.hpp>
 #include <pcl/conversions.h>
 
-#define IMAGEVIEWER
-#ifdef IMAGEVIEWER
 #include <pcl/visualization/image_viewer.h>
 #include <opencv2/core/core.hpp>
-#endif
 
 class DefconBots22
 {
@@ -136,6 +139,7 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
 	{
 
 
+#ifdef SERIAL
     using namespace LibSerial ;
     serial_port.Open( SERIAL_PORT_DEVICE ) ;
     if ( ! serial_port.good() )
@@ -197,6 +201,8 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
     // serial port.
     //
     // serial_port.unsetf( std::ios_base::skipws ) ;
+
+#endif
   }
 
 
@@ -215,6 +221,10 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
             case 'T':
               ++toggleView  %= 2; 
               break;
+            case 'c':
+            case 'C':
+                bzero(rgb_track,sizeof (char) * TRACKSIZE*TRACKSIZE*3); 
+                break;
           }
         }	
       }
@@ -304,9 +314,10 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
 	passz.setInputCloud (temp_cloud2);
 	passz.filter (*temp_cloud3);
 
-        cout << "cloud size post filter: " << temp_cloud3->size() << endl;
+    cout << "cloud size post filter: " << temp_cloud3->size() << endl;
 
 
+    centroid_vector.clear();
 
 	if(temp_cloud3->size() > 0)
 	{
@@ -318,15 +329,13 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
 		ec.extract (cluster_indices);
 		cout << "number of clusters " << cluster_indices.size() << endl;
 
-        std::vector<Eigen::VectorXf> centroid_vector;
-        centroid_vector.clear();
 
         unsigned int count = 0;
 		for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
 		{
             count++;
-  			Eigen::VectorXf centroid(6);
-  			pcl::PointXYZRGBA centroidp;
+			cout << "centroid " << count << endl;
+  			Eigen::VectorXf centroid(8);
 
 			centroid.setZero();
 			const std::vector<int> indices = (*it).indices;
@@ -341,19 +350,6 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
 			}
 			centroid /= indices.size();
 
-			centroidp.x = centroid[0];
-			centroidp.y = centroid[1];
-			centroidp.z = centroid[2];
-			centroidp.r = centroid[3];
-			centroidp.g = centroid[4];
-			centroidp.b = centroid[5];
-
-
-            centroid_vector.push_back(centroid);
-
-			cout << "centroid " << count << " " << centroid << endl;
-
-			//cout << "centroidp " << centroidp << endl;
 
 			Eigen::Vector3f centroid3f;
 			centroid3f[0] = centroid[0];
@@ -362,26 +358,17 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
 
 			pointervector = pointercenter - centroid3f;
 
-			cout << "distance from laser to centroid " << pointervector.norm() << " meters." << endl;
-			//cout << "angle to unitZ " << pcl::rad2deg(acos((pointervector.normalized()).dot(Eigen::Vector3f::UnitZ()))) << endl;
-			//cout << "angle to unitX " << pcl::rad2deg(acos((pointervector.normalized()).dot(Eigen::Vector3f::UnitX()))) << endl;
-
-			//cout << "theta " << pcl::rad2deg(acos(pointervector[2]/pointervector.norm())) << endl;
-			//cout << "phi " << pcl::rad2deg(atan(pointervector[1]/pointervector[0])) << endl;
-
-            float theta = pcl::rad2deg(atan(-centroid[0]/centroid[2]));
+            float theta = pcl::rad2deg(atan(centroid[0]/centroid[2]));
             unsigned int thetapwm = theta * 10 + 1200;
 
             float phi = pcl::rad2deg(atan(-centroid[1]/centroid[2]));
             unsigned int phipwm = phi * 10 + 1340;
 
-            float thetapointer = pcl::rad2deg(atan(-pointervector[0]/pointervector[2]));
+            float thetapointer = pcl::rad2deg(atan(pointervector[0]/pointervector[2]));
             float phipointer = pcl::rad2deg(atan(-pointervector[1]/pointervector[2]));
 
-			cout << "theta angle " << theta << " degrees.  phi angle " << phi << " degrees." << endl;
-			cout << "theta pointer angle " << thetapointer << " degrees.  phi angle " << phipointer << " degrees." << endl;
-			cout << thetapwm << "," << phipwm << ",10" << endl;
-			serial_port << thetapwm << "," << phipwm << ",10" << endl;
+            centroid[6] = phipwm;
+            centroid[7] = thetapwm;
 
             unsigned int x = centroid[0]*100 + TRACKSIZE/2;
             unsigned int z = TRACKSIZE - centroid[2]*100;
@@ -390,10 +377,18 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
             rgb_track[((z+1)*TRACKSIZE + x)*3+0] = 255;  // R 
             rgb_track[((z+1)*TRACKSIZE + x+1)*3+0] = 255;  // R 
 
+			cout << centroid << endl;
+			cout << "distance from laser to centroid " << pointervector.norm() << " meters." << endl;
+
+			cout << "theta angle " << theta << " degrees.  phi angle " << phi << " degrees." << endl;
+			cout << "theta pointer angle " << thetapointer << " degrees.  phi angle " << phipointer << " degrees." << endl;
+			cout << phipwm  << "," << thetapwm << ",10" << endl;
+
+            centroid_vector.push_back(centroid);
 		}
-        // need mutex here
-        centroid_vector_.swap(centroid_vector);
 	}
+    // need mutex here
+    centroid_vector_.swap(centroid_vector);
 
 
         if (saveCloud)
@@ -471,7 +466,7 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
           {
             if (cloud_)
               get();
-	    boost::this_thread::yield ();
+            boost::this_thread::sleep (boost::posix_time::microseconds (10000));
           }
 #else
 
@@ -487,12 +482,16 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
           {
             //the call to get() sets the cloud_ to null;
             viewer.updatePointCloud(get (), "kinect cloud");
+#ifdef SERIAL
+            if(!centroid_vector_.empty())
+			    serial_port << (unsigned int) (centroid_vector_[0])[6] << "," << (unsigned int) (centroid_vector_[0])[7] << ",10" << endl;
+#endif
 	        viewer.spinOnce();
             count++;
     	    if(count%2)
     		{
-    		    cout << "1000,1000,10" << endl;
-    		    serial_port << "1000,1000,10" << endl;
+    		    //cout << "1000,1000,10" << endl;
+    		    //serial_port << "1000,1000,10" << endl;
     		}
           }
 	  
@@ -500,19 +499,20 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
           if(!imageviewer.wasStopped()) 
     	  {
     		 if(width) {
-        	        boost::mutex::scoped_lock lock (mtx2_);
-                    imageviewer.showRGBImage(rgb_buffer,width,height); 
+                    updateImage();
     	  	        imageviewer.spinOnce();
         		}
     	  }
+#endif
+#ifdef TRACKVIEWER
           if(!imageviewertrack.wasStopped()) 
     	  {
                 imageviewertrack.showRGBImage(rgb_track,TRACKSIZE,TRACKSIZE); 
     	  	    imageviewertrack.spinOnce();
     	  }
-    	  boost::this_thread::yield ();
-
 #endif
+          boost::this_thread::sleep (boost::posix_time::microseconds (10000));
+
          if(!filename_.empty())
             viewer.spinOnce();
         }
@@ -523,18 +523,31 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
         }
       }
 
+#ifdef IMAGEVIEWER
+    void
+    updateImage() {
+             boost::mutex::scoped_lock lock (mtx2_);
+             imageviewer.showRGBImage(rgb_buffer,width,height); 
+             width = 0;
+    }
+#endif
+
 
 #ifndef NOVIEWER
   pcl::visualization::PCLVisualizer viewer;
 #endif
 #ifdef IMAGEVIEWER
   pcl::visualization::ImageViewer imageviewer;
-  pcl::visualization::ImageViewer imageviewertrack;
   unsigned char rgb_buffer[sizeof (char) * 640*480*3]; 
   unsigned int height; 
   unsigned int width; 
 #endif
+
+#ifdef TRACKVIEWER
+  pcl::visualization::ImageViewer imageviewertrack;
+#endif
   unsigned char rgb_track[sizeof (char) * TRACKSIZE*TRACKSIZE*3]; 
+
   pcl::PassThrough<pcl::PointXYZRGBA> passx;
   pcl::PassThrough<pcl::PointXYZRGBA> passy;
   pcl::PassThrough<pcl::PointXYZRGBA> passz;
@@ -548,6 +561,7 @@ void viewerOneOff (pcl::visualization::PCLVisualizer& viewer)
   int version; 
   pcl::PCLPointCloud2::Ptr pcd_cloud;
   std::vector<Eigen::VectorXf> centroid_vector_;
+  std::vector<Eigen::VectorXf> centroid_vector;
 
   std::string device_id_;
   std::string filename_;
